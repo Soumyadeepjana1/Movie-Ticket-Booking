@@ -1,0 +1,16 @@
+{
+  "name": "movie-ticket-booking",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && node index.js",
+    "client": "cd client && npx vite --port 5173",
+    "build": "cd client && npx vite build",
+    "start": "cd server && node index.js",
+    "test": "cd server && node test.js"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
