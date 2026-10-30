@@ -2,112 +2,135 @@
 pipeline {
     agent any
 
-    environment {
-        CI = 'true'
+    options {
+        skipDefaultCheckout(true)
+        timeout(time: 20, unit: 'MINUTES')
     }
 
     stages {
 
+        // 1. Checkout Code from GitHub
         stage('Git Checkout') {
             steps {
+                echo 'Downloading source code from GitHub...'
+
                 checkout scm
-                echo 'Source code downloaded successfully'
+
+                echo 'GitHub checkout completed!'
             }
         }
 
-        stage('Check Node & NPM') {
+        // 2. Install Dependencies
+        stage('Install Dependencies') {
             steps {
+                echo 'Installing Root Dependencies...'
+
                 sh '''
-                    node --version
-                    npm --version
+                    npm install --no-audit --no-fund
                 '''
-            }
-        }
 
-        stage('Install Root Dependencies') {
-            steps {
-                sh '''
-                    npm ci
-                '''
-            }
-        }
+                echo 'Installing Client Dependencies...'
 
-        stage('Install Client Dependencies') {
-            steps {
                 dir('client') {
                     sh '''
-                        if [ -f package.json ]; then
-                            if [ -f package-lock.json ]; then
-                                npm ci
-                            else
-                                npm install
-                            fi
-                        fi
+                        npm install --no-audit --no-fund
                     '''
                 }
-            }
-        }
 
-        stage('Install Server Dependencies') {
-            steps {
+                echo 'Installing Server Dependencies...'
+
                 dir('server') {
                     sh '''
-                        if [ -f package.json ]; then
-                            if [ -f package-lock.json ]; then
-                                npm ci
-                            else
-                                npm install
-                            fi
-                        fi
+                        npm install --no-audit --no-fund
                     '''
                 }
+
+                echo 'All dependencies installed successfully!'
             }
         }
 
-        stage('Build Client') {
+        // 3. Build Frontend
+        stage('Build Frontend') {
             steps {
-                dir('client') {
-                    sh 'npm run build --if-present'
-                }
+                echo 'Building React Frontend...'
+
+                sh '''
+                    npm run build
+                '''
+
+                echo 'Frontend build completed!'
             }
         }
 
-        stage('Build Server') {
-            steps {
-                dir('server') {
-                    sh 'npm run build --if-present'
-                }
-            }
-        }
-
+        // 4. Run Backend and API Tests
         stage('Run Tests') {
             steps {
+                echo 'Starting Backend Server...'
+
                 sh '''
-                    npm run test --if-present
+                    set -eu
+
+                    node server/index.js > server.log 2>&1 &
+                    SERVER_PID=$!
+
+                    cleanup() {
+                        echo "Stopping Backend Server..."
+                        kill "$SERVER_PID" 2>/dev/null || true
+                        wait "$SERVER_PID" 2>/dev/null || true
+                    }
+
+                    trap cleanup EXIT
+
+                    echo "Waiting for Backend Server on port 3001..."
+
+                    READY=0
+
+                    for i in $(seq 1 30); do
+
+                        if node -e "
+                            fetch('http://127.0.0.1:3001/api/movies')
+                                .then(response => process.exit(response.ok ? 0 : 1))
+                                .catch(() => process.exit(1))
+                        "; then
+                            READY=1
+                            break
+                        fi
+
+                        sleep 1
+                    done
+
+                    if [ "$READY" -ne 1 ]; then
+                        echo "Backend failed to start!"
+                        cat server.log
+                        exit 1
+                    fi
+
+                    echo "Backend started successfully!"
+
+                    echo "Running API Tests..."
+
+                    npm test
+
+                    echo "All API Tests completed!"
                 '''
-
-                dir('client') {
-                    sh 'npm run test --if-present'
-                }
-
-                dir('server') {
-                    sh 'npm run test --if-present'
-                }
             }
         }
+
     }
 
     post {
+
         success {
-            echo 'CI Pipeline completed successfully!'
+            echo 'SUCCESS: Movie Ticket Booking Pipeline Completed!'
         }
 
         failure {
-            echo 'CI Pipeline failed. Check the console logs.'
+            echo 'FAILED: Please check Jenkins Console Output.'
         }
 
         always {
-            echo 'Jenkins Pipeline finished.'
+            echo 'Pipeline execution finished.'
         }
+
     }
 }
